@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import infoData from '../data/info.json'
+import infoData from './data/info.json'
 import dart from './assets/dart.svg'
 import './App.css'
 
