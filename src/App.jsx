@@ -267,6 +267,8 @@ function App() {
       onChange={(e) => setInputValue(e.target.value)}
       onKeyDown={handleKeyDown}
       disabled={isGameOver || isAnimating}
+      onFocus={() => document.body.classList.add('no-scroll')}
+      onBlur={() => document.body.classList.remove('no-scroll')}
     />
   </div>
 
