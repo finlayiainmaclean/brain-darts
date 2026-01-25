@@ -5,4 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: '/brain-darts/',
+  server: {
+    allowedHosts: ['d35d076f84d0.ngrok-free.app'],
+  },
 })

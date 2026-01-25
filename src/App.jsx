@@ -1,217 +1,285 @@
-import { useEffect, useRef, useState } from 'react'
-import infoData from './data/info.json'
-import dart from './assets/dart.svg'
-import './App.css'
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useSpring, animated } from '@react-spring/web';
+import './App.css';
+import { AnimatedNumberTicker } from './AnimatedNumberTicker';
+import scoresData from './data/scores.json'
 
-const STORAGE_KEY = 'infoData'
-const OVERLAY_DELAY_MS = 800
+
+
 function App() {
-  const [info, setInfo] = useState(null)
-  const [aim, setAim] = useState(null)
-  const [currentScore, setCurrentScore] = useState(null)
-  const [dartsThrown, setDartsThrown] = useState(0)
-  const [inputValue, setInputValue] = useState('')
-  const [selected, setSelected] = useState([])
-  const [entries, setEntries] = useState([])
-  const [overlayDismissed, setOverlayDismissed] = useState(false)
-  const [overlayVisible, setOverlayVisible] = useState(false)
-  const [showToast, setShowToast] = useState(false)
-  const toastTimerRef = useRef(null)
+  const [inputValue, setInputValue] = useState("");
+  const [scalePercent, setScalePercent] = useState(Number(scoresData.aim));
+  const [viewportWidth, setViewportWidth] = useState(() => (
+    typeof window === 'undefined' ? 1000 : window.innerWidth
+  ));
+  const [dartsThrown, setDartsThrown] = useState(0);
+  const [pendingDarts, setPendingDarts] = useState(null);
+  const [showPopup, setShowPopup] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [isGameOver, setIsGameOver] = useState(false);
+  const pendingDartsRef = useRef(null);
+  const inputRef = useRef(null);
+  const prevScaleRef = useRef(scalePercent);
+  const circleScaleRef = useRef(Math.max(0, scalePercent));
+  const maxScaleRef = useRef(null);
+  
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored)
-        if (!parsed?.desc || !parsed?.unit || parsed?.aim == null) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(infoData))
-          setInfo(infoData)
-        } else {
-          setInfo(parsed)
-        }
-        return
-      } catch {
-        localStorage.removeItem(STORAGE_KEY)
-      }
-    }
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(infoData))
-    setInfo(infoData)
-  }, [])
-
-  useEffect(() => {
-    if (info?.aim == null) return
-    setAim(info.aim)
-    setCurrentScore((prev) => (prev == null ? info.aim : prev))
-  }, [info])
-
-  const statsKeys = info?.stats
-    ? Object.keys(info.stats)
-        .sort((a, b) => a.localeCompare(b))
-        .filter((key) => !selected.includes(key))
-    : []
-
-  const handleKeyDown = (event) => {
-    if (event.key !== 'Enter') return
-    const key = inputValue.trim()
-    if (!key || !info?.stats) return
-
-    const value = info.stats[key]
-    if (value == null) return
-
-    setSelected((prev) => (prev.includes(key) ? prev : [...prev, key]))
-    setEntries((prev) => [...prev, { key, value }])
-    setCurrentScore((prev) => {
-      const base = prev ?? aim
-      return base == null ? null : base - value
+  const isAnimating = pendingDarts !== null;
+  const maxCirclePx = useMemo(() => (
+    Math.max(0, viewportWidth * 0.5)
+  ), [viewportWidth]);
+  const minCirclePx = 20;
+  const confettiPieces = useMemo(() => (
+    Array.from({ length: 24 }, () => {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 140 + Math.random() * 140;
+      return {
+        x: Math.cos(angle) * distance,
+        y: Math.sin(angle) * distance,
+        rotation: Math.random() * 360,
+        delay: Math.random() * 120,
+        duration: 700 + Math.random() * 300,
+        color: `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`,
+      };
     })
-    setDartsThrown((prev) => prev + 1)
-    setInputValue('')
-  }
+  ), []);
+  const getScaleT = (value) => {
+    const maxScale = maxScaleRef.current ?? 100;
+    const clamped = Math.min(maxScale, Math.max(0, value));
+    return clamped / maxScale;
+  };
+  const getBaseColor = (value) => {
+    const t = getScaleT(value);
+    return {
+      r: Math.round(204 * (1 - t) + 255 * t),
+      g: Math.round(255 * (1 - t) + 204 * t),
+      b: 204,
+    };
+  };
 
-  const formattedCurrentScore =
-    typeof currentScore === 'number' ? currentScore.toFixed(2) : currentScore
-  const slabEntries = Array.from({ length: 3 }, (_, index) => entries[index])
-
-  const shareText =
-    `Brain Darts\n` +
-    `Today's game: ${infoData.desc} ${aim ?? infoData.aim} ${
-      infoData.units ?? infoData.unit ?? ''
-    }\n` +
-    ` 🎯 Dart 1: ${entries[0]?.key ?? ''} ${entries[0]?.value?.toFixed?.(2) ?? ''}\n` +
-    ` 🎯 Dart 2: ${entries[1]?.key ?? ''} ${entries[1]?.value?.toFixed?.(2) ?? ''}\n` +
-    ` 🎯 Dart 3: ${entries[2]?.key ?? ''} ${entries[2]?.value?.toFixed?.(2) ?? ''}\n` +
-    `Score: ${formattedCurrentScore ?? ''}`
-  const handleShareCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(shareText)
-      setShowToast(true)
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current)
+  // Main background circle animation
+  const { springValue } = useSpring({
+    springValue: scalePercent,
+    config: { tension: 170, friction: 22 },
+    onRest: () => {
+      if (pendingDartsRef.current === null) {
+        return;
       }
-      toastTimerRef.current = setTimeout(() => {
-        setShowToast(false)
-      }, 1000)
-    } catch {
-      // Ignore clipboard failures (e.g. unsupported or blocked)
-    }
-  }
 
-  const scoreRatio =
-    aim && typeof currentScore === 'number' && aim !== 0 ? currentScore / aim : null
-  const scorePercent =
-    scoreRatio != null ? Math.max(0, Math.min(1, scoreRatio)) : 0
-  const innerBull = scoreRatio != null && currentScore > 0 && scoreRatio <= 0.1
-  const overlayCondition =
-    currentScore != null && (currentScore < 0 || dartsThrown === 3)
+      const nextDarts = pendingDartsRef.current;
+      pendingDartsRef.current = null;
+      setPendingDarts(null);
+      setDartsThrown(nextDarts);
+    },
+  });
+  const { negativeLerp } = useSpring({
+    negativeLerp: scalePercent < 0 ? 1 : 0,
+    config: { tension: 120, friction: 18 },
+  });
+
+
+
+  const scoreLookup = useMemo(() => {
+    const lookup = {};
+    Object.entries(scoresData.stats).forEach(([key, value]) => {
+      // .replace(/'/g, "") removes all single quotes
+      const normalizedKey = key.toLowerCase().trim().replace(/'/g, "");
+      lookup[normalizedKey] = value;
+    });
+    return lookup;
+  }, []);
+
+  // Indicator animations (Right circle disappears first, then middle, then left)
+  const rightCircle = useSpring({ scale: dartsThrown >= 1 ? 0 : 1 });
+  const middleCircle = useSpring({ scale: dartsThrown >= 2 ? 0 : 1 });
+  const leftCircle = useSpring({ scale: dartsThrown >= 3 ? 0 : 1 });
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !isGameOver && !isAnimating) {
+      e.preventDefault();
+      
+      // Normalize user input: lowercase, trim, and remove all types of single quotes
+      const normalizedInput = inputValue
+        .toLowerCase()
+        .trim()
+        .replace(/['‘’]/g, ""); // Removes standard and curly single quotes
+  
+      const scoreValue = scoreLookup[normalizedInput];
+  
+      if (scoreValue !== undefined) {
+        const nextDarts = dartsThrown + 1;
+        setScalePercent(prev => prev - scoreValue);
+        pendingDartsRef.current = nextDarts;
+        setPendingDarts(nextDarts);
+        setInputValue("");
+      } else {
+        console.log("Invalid entry");
+      }
+    }
+  };
+
+  
 
   useEffect(() => {
-    if (overlayDismissed || !overlayCondition) {
-      setOverlayVisible(false)
-      return
+
+    if (scalePercent < 0) {
+      setIsGameOver(true); 
+      const popupTimeout = setTimeout(() => setShowPopup(true), 1000);
+      return () => clearTimeout(popupTimeout);
     }
 
-    const timer = setTimeout(() => {
-      setOverlayVisible(true)
-    }, OVERLAY_DELAY_MS)
+    if (dartsThrown !== 3) {
+      return undefined;
+    }
 
-    return () => clearTimeout(timer)
-  }, [overlayDismissed, overlayCondition])
+
+    if (scalePercent < 10 && scalePercent >= 0) {
+      setShowConfetti(true);
+      const confettiTimeout = setTimeout(() => setShowConfetti(false), 1000);
+      const popupTimeout = setTimeout(() => setShowPopup(true), 1100);
+      return () => {
+        clearTimeout(confettiTimeout);
+        clearTimeout(popupTimeout);
+      };
+    }
+
+    const popupTimeout = setTimeout(() => setShowPopup(true), 500);
+    return () => clearTimeout(popupTimeout);
+  }, [dartsThrown, scalePercent]);
+
+  useEffect(() => {
+    if (!isGameOver && !isAnimating) {
+      inputRef.current?.focus();
+    }
+  }, [isGameOver, isAnimating]);
+
+  useEffect(() => {
+    if (maxScaleRef.current === null) {
+      maxScaleRef.current = Math.max(0, scalePercent);
+    }
+  }, [scalePercent]);
+
+  useEffect(() => {
+    if (scalePercent >= 0) {
+      circleScaleRef.current = scalePercent;
+    }
+  }, [scalePercent]);
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    prevScaleRef.current = scalePercent;
+  }, [scalePercent]);
+
+  const aimValue = Number(scoresData.aim);
+  const finalScore = Math.round((1 - (scalePercent / aimValue)) * 100);
 
   return (
-    <div>
-      {showToast && <div className="toast">Results copied to clipboard</div>}
-      <h1 className="title">
-        {info?.desc && aim != null && (info?.units || info?.unit)
-          ? `${info.desc} ${aim} ${info.units ?? info.unit}`
-          : `${infoData.desc} ${infoData.aim} ${infoData.units ?? infoData.unit}`}
-      </h1>
-      <div className="score-slab" aria-label="Current score">
-        <div
-          className="score-fill"
-          style={{ width: `${scorePercent * 100}%` }}
-        />
-        <span className="score-text">
-          {formattedCurrentScore ?? 'Loading...'}
-        </span>
+    <div className="app-container">
+      {/* Top Indicators */}
+      <div className="indicators-container">
+        <div className="indicators-row">
+          <span className="indicators-label">Darts Remaining:</span>
+          <animated.div className="indicator" style={leftCircle} />
+          <animated.div className="indicator" style={middleCircle} />
+          <animated.div className="indicator" style={rightCircle} />
+        </div>
+        <div className="indicators-details">
+          <span className="indicators-subtext">Category: {scoresData.score_name} ({scoresData.unit}s)</span>
+        </div>
+        
       </div>
-      <div className="slabs">
-        {slabEntries.map((entry, index) => (
-          <div className="slab" key={`${entry?.key ?? 'empty'}-${index}`}>
-            <span>{entry?.key ?? ''}</span>
-            <span>
-              {typeof entry?.value === 'number'
-                ? entry.value.toFixed(2)
-                : ''}
-            </span>
-          </div>
-        ))}
+
+      {/* Background Circle */}
+      <animated.div 
+        className="background-circle" 
+        style={{
+          width: springValue.to((v) => {
+            const scaleForCircle = scalePercent < 0 ? circleScaleRef.current : v;
+            const t = getScaleT(scaleForCircle);
+            return `${minCirclePx + (maxCirclePx - minCirclePx) * t}px`;
+          }),
+          height: springValue.to((v) => {
+            const scaleForCircle = scalePercent < 0 ? circleScaleRef.current : v;
+            const t = getScaleT(scaleForCircle);
+            return `${minCirclePx + (maxCirclePx - minCirclePx) * t}px`;
+          }),
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: scalePercent < 0
+            ? negativeLerp.to((t) => {
+              const base = getBaseColor(circleScaleRef.current);
+              const target = { r: 220, g: 220, b: 220 };
+              const lerp = (from, to) => Math.round(from + (to - from) * t);
+              return `rgb(${lerp(base.r, target.r)}, ${lerp(base.g, target.g)}, ${lerp(base.b, target.b)})`;
+            })
+            : springValue.to((v) => {
+              const { r, g, b } = getBaseColor(v);
+              return `rgb(${r}, ${g}, ${b})`;
+            })
+        }} 
+      />
+
+      <div className="target-display">
+        <AnimatedNumberTicker startValue={prevScaleRef.current} endValue={scalePercent} />
       </div>
-      <label className="input-row">
-        <input
-          list="stats-keys"
-          value={inputValue}
-          onChange={(event) => setInputValue(event.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={
-            overlayVisible ||
-            dartsThrown === 3 ||
-            (currentScore != null && currentScore < 0)
-          }
-        />
-      </label>
-      <datalist id="stats-keys">
-        {statsKeys.map((key) => (
-          <option key={key} value={key} />
-        ))}
-      </datalist>
-      {overlayVisible && (
-        <div className="overlay">
-          <button
-            className="overlay-close"
-            type="button"
-            onClick={() => setOverlayDismissed(true)}
-            aria-label="Close"
-          >
-            ×
-          </button>
-          {currentScore < 0 ? (
-            <p>You went over by {(-currentScore).toFixed(2)}! Try again tomorrow!</p>
-          ) : innerBull ? (
-            <div className="bull-message">
-              <div className="bull-target" aria-hidden="true">
-                <span className="bull-circle">
-                  <span className="bull-confetti">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </span>
-                <img className="bull-dart" src={dart} alt="" />
-              </div>
-              <p>Bullseye!</p>
-            </div>
-          ) : (
-            <p>Rats! You were {formattedCurrentScore} away from the bullseye. Try again tomorrow!</p>
-          )}
-          {dartsThrown === 3 && (
-            <button className="overlay-share" type="button" onClick={handleShareCopy}>
-              Share Results
-            </button>
-          )}
-          
+
+      {showConfetti && (
+        <div className="confetti-container">
+          {confettiPieces.map((piece, index) => (
+            <span
+              key={`confetti-${index}`}
+              className="confetti-piece"
+              style={{
+                '--x': `${piece.x}px`,
+                '--y': `${piece.y}px`,
+                '--rot': `${piece.rotation}deg`,
+                '--delay': `${piece.delay}ms`,
+                '--duration': `${piece.duration}ms`,
+                backgroundColor: piece.color,
+              }}
+            />
+          ))}
         </div>
       )}
+
+    <textarea 
+      className="country-input"
+      placeholder={
+        pendingDarts === 3 || isGameOver
+          ? ""
+          : `Enter a ${scoresData.group_name}…`
+      }
+      spellCheck="false"
+      // Changed from numeric to text/default
+      inputMode="text" 
+      rows="1"
+      value={inputValue}
+      ref={inputRef}
+      autoFocus
+      onChange={(e) => setInputValue(e.target.value)}
+      onKeyDown={handleKeyDown}
+      disabled={isGameOver || isAnimating}
+    />
+
+    {showPopup && (
+      <div className="popup-overlay">
+        <div className="popup-content">
+          {scalePercent < 0 ? (
+            <p className="final-value">Game over! You went over the target by {Math.abs(scalePercent)} {scoresData.unit}.</p>
+          ) : finalScore >= 95 ? (
+            <p className="final-value">Bullseye! Accuracy: {finalScore}%</p>
+          ) : (
+            <p className="final-value">Not close enough! Accuracy: {finalScore}%</p>
+          )}
+        </div>
+      </div>
+    )}
     </div>
-  )
+  );
 }
 
-export default App
-
-
-
+export default App;
