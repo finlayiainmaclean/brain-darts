@@ -201,9 +201,17 @@ h2 {
   will-change: transform;
 }
 
-/* Adjust the input padding so it doesn't overlap on small screens */
+.input-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* Full screen height */
+}
+
 .country-input {
-  margin-top: 80px;
+  /* This pushes the input down to the 25% mark */
+  margin-top: 25vh; 
+  /* Center horizontally */
+  align-self: center; 
 }
 
 .country-input::placeholder {

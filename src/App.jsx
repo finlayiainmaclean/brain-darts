@@ -246,6 +246,10 @@ function App() {
         </div>
       )}
 
+<div className="input-wrapper">
+  
+
+
     <textarea 
       className="country-input"
       placeholder={
@@ -264,6 +268,7 @@ function App() {
       onKeyDown={handleKeyDown}
       disabled={isGameOver || isAnimating}
     />
+  </div>
 
     {showPopup && (
       <div className="popup-overlay">
