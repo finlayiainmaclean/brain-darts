@@ -213,14 +213,18 @@ h2 {
 
 .country-input {
   /* This pushes the input down to the 25% mark */
-  margin-top: 25vh; 
+  margin-top: 15vh; 
   /* Center horizontally */
   align-self: center; 
   font-family: sans-serif;
   
   /* Optional: Standardize font size for better UI */
   font-size: 1.2rem;
-  font-size: 16px; /* Critical for preventing auto-zoom */
+  font-size: 32px; /* Critical for preventing auto-zoom */
+
+  /* Standard fixes for mobile inputs */
+  outline: none;
+  resize: none;
 }
 
 .country-input::placeholder {
